@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f6f4;
+  --surface: #fcfcfb;
+  --border: #e4e3df;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #7a7974;
+  --accent: #1c5cab;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --good: #008300;
+  --bad: #d03b3a;
+  --grid: #ebeae6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211;
+    --surface: #1a1a19;
+    --border: #2e2e2b;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-3: #8f8e86;
+    --accent: #6da7ec;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --good: #3fb950;
+    --bad: #e66767;
+    --grid: #2a2a27;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-line: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.card { @apply bg-surface border border-line rounded-xl; }
+.btn { @apply inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50; }
+@media (prefers-color-scheme: dark) { .btn { color: #0b0b0b; } }
+.btn-ghost { @apply inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-sm hover:bg-bg; }
+.input { @apply w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent; }
+.label { @apply mb-1 block text-xs font-medium text-ink-2; }
+.tabular { font-variant-numeric: tabular-nums; }
