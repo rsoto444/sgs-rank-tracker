@@ -39,6 +39,12 @@ Built Sunday 27 September.
 
 - Open **Sites**, pick a site, copy the snippet and paste it into the site's head section.
 
+### 5. Report API (optional, read-only)
+
+- Add **REPORT_API_KEY** in Vercel: any random text, 24+ characters. Redeploy.
+- Then `GET /api/report?site=provoseopros.com&days=28` with the header `Authorization: Bearer <REPORT_API_KEY>` returns that site's keyword positions, Search Console numbers and visitors as JSON. Without `site`, it lists all sites.
+- It only reads. Without the key set, it stays switched off.
+
 ## Adding a client
 
 - **Sites** page, fill in **Add a site**, choose **Client site**.

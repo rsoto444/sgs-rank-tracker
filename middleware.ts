@@ -8,5 +8,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!login|t\\.js|api/collect|api/cron|_next|favicon\\.ico|icon\\.svg).*)"],
+  matcher: ["/((?!login|t\\.js|api/collect|api/cron|api/report|_next|favicon\\.ico|icon\\.svg).*)"],
 };
