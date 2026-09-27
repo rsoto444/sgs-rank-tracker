@@ -5,9 +5,10 @@ import { randomBytes } from "node:crypto";
 import postgres from "postgres";
 import bcrypt from "bcryptjs";
 
-const url = process.env.DATABASE_URL;
+// Neon on Vercel may name it either way.
+const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 if (!url) {
-  console.log("setup: DATABASE_URL not set, skipping database setup");
+  console.log("setup: no DATABASE_URL or POSTGRES_URL, skipping database setup");
   process.exit(0);
 }
 
