@@ -96,3 +96,12 @@ CREATE TABLE IF NOT EXISTS sync_log (
   message  text NOT NULL,
   PRIMARY KEY (site_id, source)
 );
+
+-- Daily checks sent to DataForSEO's cheaper Standard Queue, waiting to be collected.
+CREATE TABLE IF NOT EXISTS rank_tasks (
+  task_id    text PRIMARY KEY,
+  keyword_id integer NOT NULL REFERENCES keywords(id) ON DELETE CASCADE,
+  checked_on date NOT NULL,
+  posted_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS rank_tasks_keyword ON rank_tasks (keyword_id, checked_on);

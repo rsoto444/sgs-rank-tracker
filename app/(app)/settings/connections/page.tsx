@@ -39,7 +39,7 @@ export default async function ConnectionsPage() {
           </div>
           <p className="text-sm text-ink-2">
             {dfs
-              ? "Every tracked keyword gets checked once a day."
+              ? "Every tracked keyword gets checked once a day on the cheaper Standard Queue. Results land within an hour of the morning run. The Check positions now button uses Live mode: instant, but about 3 times the price."
               : "Add DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD in Vercel, under Settings then Environment Variables, then redeploy."}
           </p>
         </section>
