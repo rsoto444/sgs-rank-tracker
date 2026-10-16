@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 process.env.DATAFORSEO_LOGIN = "me@example.com";
 process.env.DATAFORSEO_PASSWORD = "SECRET-PASSWORD";
-const { fetchKeywordMetrics, metricsKey } = await import("../lib/dataforseo.ts");
+const { fetchKeywordMetrics, metricsKey, fetchKeywordIdeas, MAX_IDEA_SEEDS, MAX_IDEAS } = await import("../lib/dataforseo.ts");
 
 type Call = { path: string; headers: Record<string, string>; body: any };
 function fakeApi(handler: (path: string, body: any) => { ok?: boolean; status?: number; json: any }) {
@@ -125,4 +125,39 @@ test("counts how many keywords came back with a volume and with a difficulty", a
   assert.equal(r.withVolume, 1);
   assert.equal(r.withDifficulty, 0);
   assert.equal(r.byKey.size, 3);
+});
+
+const IDEAS = "/v3/dataforseo_labs/google/keyword_ideas/live";
+const ideasTask = (items: any[], cost = 0.0103, total = items.length) => ({ status_code: 20000, tasks: [{ status_code: 20000, status_message: "Ok.", cost, result: [{ total_count: total, items }] }] });
+const idea = (keyword: string, volume: number | null, diff: number | null) => ({ keyword, keyword_info: { search_volume: volume, cpc: 1.2, competition_level: "LOW" }, keyword_properties: { keyword_difficulty: diff } });
+
+test("asks for related keywords that have volume, most relevant first, and reports the real cost", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([idea("lead follow up software", 480, 41), idea("lead follow up", 590, 38), idea("speed to lead", 210, null)], 0.0123) }));
+  const r = await fetchKeywordIdeas(["Lead Follow Up", "lead follow up"], 2840, "en");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, IDEAS);
+  assert.deepEqual(calls[0].body.keywords, ["lead follow up"]);
+  assert.deepEqual(calls[0].body.filters, ["keyword_info.search_volume", ">", 0]);
+  assert.deepEqual(calls[0].body.order_by, ["relevance,desc", "keyword_info.search_volume,desc"]);
+  assert.equal(calls[0].body.limit, MAX_IDEAS);
+  assert.deepEqual(r.ideas.map((i) => i.keyword), ["lead follow up software", "speed to lead"]); // the seed itself is dropped
+  assert.deepEqual(r.ideas[0], { keyword: "lead follow up software", searchVolume: 480, cpc: 1.2, competition: "LOW", difficulty: 41 });
+  assert.equal(r.ideas[1].difficulty, null);
+  assert.equal(r.cost, 0.0123);
+});
+
+test("caps the seeds and the number of ideas, and makes no request with no usable seed", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([]) }));
+  await fetchKeywordIdeas(Array.from({ length: 25 }, (_, i) => `seed ${i}`), 2840, "en", 5000);
+  assert.equal(calls[0].body.keywords.length, MAX_IDEA_SEEDS);
+  assert.equal(calls[0].body.limit, MAX_IDEAS);
+  const none = fakeApi(() => ({ json: ideasTask([]) }));
+  const r = await fetchKeywordIdeas(["", "w ".repeat(11)], 2840, "en");
+  assert.equal(none.length, 0);
+  assert.deepEqual(r.ideas, []);
+});
+
+test("an ideas request that fails throws, without the credentials in the message", async () => {
+  fakeApi(() => ({ ok: false, status: 401, json: {} }));
+  await assert.rejects(() => fetchKeywordIdeas(["a"], 2840, "en"), (e: Error) => !e.message.includes("SECRET-PASSWORD"));
 });

@@ -6,6 +6,7 @@ import { dataForSeoConnected } from "@/lib/dataforseo";
 import NoSite from "@/components/NoSite";
 import PageTitle from "@/components/PageTitle";
 import AddKeywordsForm from "@/components/AddKeywordsForm";
+import KeywordIdeas from "@/components/KeywordIdeas";
 import ActionButton from "@/components/ActionButton";
 import { Change, PositionBadge } from "@/components/Position";
 import { checkRanksNow, refreshGoogleNow, refreshMetricsNow, trackQuery } from "../actions";
@@ -82,6 +83,12 @@ export default async function KeywordsPage() {
           </tbody>
         </table>
       </div>
+
+      {isAdmin && connected && (
+        <div className="mt-5">
+          <KeywordIdeas defaultSeeds={rows.slice(0, 5).map((r) => r.keyword)} />
+        </div>
+      )}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         {isAdmin && <AddKeywordsForm canCheck={connected} />}

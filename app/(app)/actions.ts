@@ -9,6 +9,7 @@ import { requireAdmin, requireUser } from "@/lib/auth";
 import { ACTIVE_SITE_COOKIE, canAccess, getContext, type Site } from "@/lib/sites";
 import { syncAll, syncGa4, syncGsc, syncKeywordMetrics, syncRanks } from "@/lib/sync";
 import { cleanDomain } from "@/lib/format";
+import { dataForSeoConnected, fetchKeywordIdeas, MAX_IDEA_SEEDS, type KeywordIdea } from "@/lib/dataforseo";
 
 export async function setActiveSite(siteId: number) {
   const user = await requireUser();
@@ -45,6 +46,25 @@ export async function addKeywords(_: string | null, form: FormData) {
   revalidatePath("/keywords");
   const skipped = unique.length - added.length;
   return `Added ${added.length} keyword${added.length === 1 ? "" : "s"}${skipped ? ` (${skipped} already tracked)` : ""}.`;
+}
+
+export type IdeasState = { error?: string; ideas?: KeywordIdea[]; cost?: number; seeds?: string[] } | null;
+
+/** Related keywords that have real search volume, for the seeds typed in. Admin only; one lookup per click. */
+export async function findKeywordIdeas(_: IdeasState, form: FormData): Promise<IdeasState> {
+  const site = await activeSiteForAdmin();
+  if (!dataForSeoConnected()) return { error: "DataForSEO is not connected yet." };
+  const seeds = [...new Set(String(form.get("seeds") ?? "").split(/\r?\n|,/).map((k) => k.trim().toLowerCase().replace(/\s+/g, " ")).filter(Boolean))];
+  if (!seeds.length) return { error: "Type at least one starting keyword." };
+  if (seeds.length > MAX_IDEA_SEEDS) return { error: `Use at most ${MAX_IDEA_SEEDS} starting keywords at a time.`, seeds };
+  try {
+    const { ideas, cost } = await fetchKeywordIdeas(seeds, site.location_code, site.language_code);
+    // Phrases already tracked on this site are not new ideas.
+    const tracked = new Set((await sql<{ keyword: string }[]>`SELECT lower(keyword) AS keyword FROM keywords WHERE site_id = ${site.id}`).map((r) => r.keyword));
+    return { ideas: ideas.filter((i) => !tracked.has(i.keyword)), cost, seeds };
+  } catch (e) {
+    return { error: (e as Error).message, seeds };
+  }
 }
 
 export async function trackQuery(query: string) {

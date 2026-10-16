@@ -14,7 +14,7 @@ export function dataForSeoConnected() {
 }
 
 type SerpItem = { type: string; rank_group: number; domain?: string; url?: string };
-type Task = { id: string; status_code: number; status_message: string; data?: { tag?: string }; result?: { items?: SerpItem[] }[] | null };
+type Task = { id: string; status_code: number; status_message: string; cost?: number; data?: { tag?: string }; result?: { items?: SerpItem[] }[] | null };
 
 export type RankResult = { position: number | null; url: string | null };
 
@@ -178,4 +178,46 @@ export async function fetchKeywordMetrics(items: KeywordMetricsInput[]) {
     if (m.difficulty !== null) withDifficulty++;
   }
   return { byKey, failedKeys, errors, withVolume, withDifficulty };
+}
+
+// ---------- keyword ideas: related phrases that actually have search volume ----------
+// POST dataforseo_labs/google/keyword_ideas/live. Up to 200 seed keywords; returns related keywords with
+// monthly searches, cost per click, competition and difficulty. We only ask for ones with a volume above
+// zero, most relevant first. The price is not published on the docs page, so the real cost of every call is
+// read from the response and shown to the user.
+// Docs: https://docs.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live/
+
+const IDEAS_PATH = "/v3/dataforseo_labs/google/keyword_ideas/live";
+export const MAX_IDEA_SEEDS = 10;
+export const MAX_IDEAS = 40;
+
+export type KeywordIdea = { keyword: string; searchVolume: number | null; cpc: number | null; competition: string | null; difficulty: number | null };
+
+export async function fetchKeywordIdeas(seeds: string[], locationCode: number, languageCode: string, limit = MAX_IDEAS) {
+  const clean = [...new Set(seeds.map((k) => k.trim().toLowerCase()).filter((k) => k && k.length <= 80 && k.split(" ").length <= 10))].slice(0, MAX_IDEA_SEEDS);
+  if (!clean.length) return { ideas: [] as KeywordIdea[], cost: 0, total: 0 };
+  const task = await callTask(IDEAS_PATH, [{
+    keywords: clean,
+    location_code: locationCode,
+    language_code: languageCode,
+    limit: Math.min(Math.max(limit, 1), MAX_IDEAS),
+    filters: ["keyword_info.search_volume", ">", 0],
+    order_by: ["relevance,desc", "keyword_info.search_volume,desc"],
+  }]);
+  const block = (task.result?.[0] ?? {}) as { total_count?: number; items?: { keyword?: string; keyword_info?: { search_volume?: number | null; cpc?: number | null; competition_level?: string | null }; keyword_properties?: { keyword_difficulty?: number | null } }[] };
+  const seen = new Set(clean);
+  const ideas: KeywordIdea[] = [];
+  for (const it of block.items ?? []) {
+    const keyword = (it.keyword ?? "").trim().toLowerCase();
+    if (!keyword || seen.has(keyword)) continue; // the seeds themselves are not "new ideas"
+    seen.add(keyword);
+    ideas.push({
+      keyword,
+      searchVolume: typeof it.keyword_info?.search_volume === "number" ? it.keyword_info.search_volume : null,
+      cpc: typeof it.keyword_info?.cpc === "number" ? it.keyword_info.cpc : null,
+      competition: it.keyword_info?.competition_level ? String(it.keyword_info.competition_level) : null,
+      difficulty: typeof it.keyword_properties?.keyword_difficulty === "number" ? it.keyword_properties.keyword_difficulty : null,
+    });
+  }
+  return { ideas, cost: Number(task.cost) || 0, total: Number(block.total_count) || ideas.length };
 }
