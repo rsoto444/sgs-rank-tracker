@@ -48,7 +48,10 @@ export async function addKeywords(_: string | null, form: FormData) {
   return `Added ${added.length} keyword${added.length === 1 ? "" : "s"}${skipped ? ` (${skipped} already tracked)` : ""}.`;
 }
 
-export type IdeasState = { error?: string; ideas?: KeywordIdea[]; cost?: number; seeds?: string[] } | null;
+export type IdeasState = {
+  error?: string; ideas?: KeywordIdea[]; cost?: number; seeds?: string[];
+  returned?: number; total?: number; usedBroad?: boolean; alreadyTracked?: number; mustInclude?: string[];
+} | null;
 
 /** Related keywords that have real search volume, for the seeds typed in. Admin only; one lookup per click. */
 export async function findKeywordIdeas(_: IdeasState, form: FormData): Promise<IdeasState> {
@@ -59,13 +62,14 @@ export async function findKeywordIdeas(_: IdeasState, form: FormData): Promise<I
   if (seeds.length > MAX_IDEA_SEEDS) return { error: `Use at most ${MAX_IDEA_SEEDS} starting keywords at a time.`, seeds };
   try {
     const mustInclude = String(form.get("include") ?? "").split(/\r?\n|,/).map((w) => w.trim().toLowerCase()).filter(Boolean);
-    const { ideas, cost } = await fetchKeywordIdeas(seeds, site.location_code, site.language_code, {
+    const { ideas, cost, returned, total, usedBroad } = await fetchKeywordIdeas(seeds, site.location_code, site.language_code, {
       phraseMatch: form.get("phrase") === "on",
       mustInclude,
     });
     // Phrases already tracked on this site are not new ideas.
     const tracked = new Set((await sql<{ keyword: string }[]>`SELECT lower(keyword) AS keyword FROM keywords WHERE site_id = ${site.id}`).map((r) => r.keyword));
-    return { ideas: ideas.filter((i) => !tracked.has(i.keyword)), cost, seeds };
+    const fresh = ideas.filter((i) => !tracked.has(i.keyword));
+    return { ideas: fresh, cost, seeds, returned, total, usedBroad, alreadyTracked: ideas.length - fresh.length, mustInclude };
   } catch (e) {
     return { error: (e as Error).message, seeds };
   }

@@ -148,7 +148,7 @@ test("asks for related keywords that have volume, most relevant first, and repor
 });
 
 test("caps the seeds and the number of ideas, and makes no request with no usable seed", async () => {
-  const calls = fakeApi(() => ({ json: ideasTask([]) }));
+  const calls = fakeApi(() => ({ json: ideasTask([idea("some idea", 10, 1)]) }));
   await fetchKeywordIdeas(Array.from({ length: 25 }, (_, i) => `seed ${i}`), 2840, "en");
   assert.equal(calls[0].body.keywords.length, MAX_IDEA_SEEDS);
   assert.equal(calls[0].body.limit, MAX_IDEAS);
@@ -177,4 +177,37 @@ test("never shows more than the ideas cap, even after filtering a big response",
   fakeApi(() => ({ json: ideasTask(Array.from({ length: 100 }, (_, i) => idea(`roofing idea ${i}`, 10 + i, 5))) }));
   const r = await fetchKeywordIdeas(["roofing"], 2840, "en", { mustInclude: ["roofing"] });
   assert.equal(r.ideas.length, MAX_IDEAS);
+});
+
+test("when whole-phrase matching finds nothing, retries once with broader matching, says so, and adds up the cost", async () => {
+  const calls = fakeApi((_p, body) =>
+    body.closely_variants ? { json: ideasTask([], 0.012, 0) } : { json: ideasTask([idea("lead management software", 880, 30)], 0.016, 5000) });
+  const r = await fetchKeywordIdeas(["lead follow up"], 2840, "en");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].body.closely_variants, true);
+  assert.equal(calls[1].body.closely_variants, false);
+  assert.equal(r.usedBroad, true);
+  assert.equal(r.cost, 0.028);
+  assert.equal(r.returned, 1);
+  assert.equal(r.total, 5000);
+  assert.deepEqual(r.ideas.map((i) => i.keyword), ["lead management software"]);
+});
+
+test("does not retry when whole-phrase matching found something, or when loose matching was asked for and found nothing", async () => {
+  const found = fakeApi(() => ({ json: ideasTask([idea("hvac lead follow up", 90, 12)]) }));
+  const a = await fetchKeywordIdeas(["lead follow up"], 2840, "en");
+  assert.equal(found.length, 1);
+  assert.equal(a.usedBroad, false);
+  const empty = fakeApi(() => ({ json: ideasTask([], 0.01, 0) }));
+  const b = await fetchKeywordIdeas(["lead follow up"], 2840, "en", { phraseMatch: false });
+  assert.equal(empty.length, 1);
+  assert.equal(b.ideas.length, 0);
+  assert.equal(b.returned, 0);
+});
+
+test("reports what DataForSEO returned even when our must-include filter removes everything", async () => {
+  fakeApi(() => ({ json: ideasTask([idea("unrelated thing", 30, 5), idea("another unrelated", 20, 4)], 0.01, 2) }));
+  const r = await fetchKeywordIdeas(["x"], 2840, "en", { mustInclude: ["roofing"] });
+  assert.equal(r.ideas.length, 0);
+  assert.equal(r.returned, 2);
 });

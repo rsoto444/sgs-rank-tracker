@@ -47,8 +47,20 @@ export default function KeywordIdeas() {
           )}
         </div>
       </form>
+      {state?.ideas && (
+        <p className="mt-2 text-xs text-ink-3">
+          {state.usedBroad && "No phrases matched exactly, so these are broader ideas. "}
+          DataForSEO returned {state.returned ?? 0} idea{state.returned === 1 ? "" : "s"} with search volume{state.total && state.total > (state.returned ?? 0) ? ` (${state.total.toLocaleString()} exist)` : ""}
+          {state.mustInclude && state.mustInclude.length > 0 ? `, filtered to those containing ${state.mustInclude.join(" or ")}` : ""}
+          {state.alreadyTracked ? `; ${state.alreadyTracked} already tracked` : ""}.
+        </p>
+      )}
       {state?.ideas && state.ideas.length === 0 && (
-        <p className="mt-3 text-sm text-ink-3">Nothing new with search volume for those starting phrases. Try broader ones, like a single topic word.</p>
+        <p className="mt-3 text-sm text-ink-3">
+          {(state.returned ?? 0) === 0
+            ? "DataForSEO had no related phrases with search volume for those starting phrases. Try a shorter topic, like \"lead follow up\", or a single word."
+            : "DataForSEO returned ideas, but none were new after your filters. Loosen the must-include words, or turn off the whole-phrase option."}
+        </p>
       )}
       {state?.ideas && state.ideas.length > 0 && (
         <div className="mt-3 overflow-x-auto">

@@ -203,24 +203,50 @@ export type IdeaOptions = {
   mustInclude?: string[];
 };
 
-export async function fetchKeywordIdeas(seeds: string[], locationCode: number, languageCode: string, opts: IdeaOptions = {}) {
-  const must = (opts.mustInclude ?? []).map((w) => w.trim().toLowerCase()).filter(Boolean);
-  const limit = must.length ? IDEAS_FETCH_WHEN_FILTERING : MAX_IDEAS;
-  const clean = [...new Set(seeds.map((k) => k.trim().toLowerCase()).filter((k) => k && k.length <= 80 && k.split(" ").length <= 10))].slice(0, MAX_IDEA_SEEDS);
-  if (!clean.length) return { ideas: [] as KeywordIdea[], cost: 0, total: 0 };
+export type IdeasResult = {
+  ideas: KeywordIdea[];
+  cost: number;
+  // What DataForSEO sent back before we removed seeds and applied "must include", and how many it says exist.
+  returned: number;
+  total: number;
+  // True when the whole-phrase search came back empty and a broader search was used instead.
+  usedBroad: boolean;
+};
+
+async function askIdeas(seeds: string[], locationCode: number, languageCode: string, limit: number, phraseMatch: boolean) {
   const task = await callTask(IDEAS_PATH, [{
-    keywords: clean,
+    keywords: seeds,
     location_code: locationCode,
     language_code: languageCode,
     limit,
-    closely_variants: opts.phraseMatch !== false,
+    closely_variants: phraseMatch,
     filters: ["keyword_info.search_volume", ">", 0],
     order_by: ["relevance,desc", "keyword_info.search_volume,desc"],
   }]);
   const block = (task.result?.[0] ?? {}) as { total_count?: number; items?: { keyword?: string; keyword_info?: { search_volume?: number | null; cpc?: number | null; competition_level?: string | null }; keyword_properties?: { keyword_difficulty?: number | null } }[] };
+  return { items: block.items ?? [], total: Number(block.total_count) || 0, cost: Number(task.cost) || 0 };
+}
+
+export async function fetchKeywordIdeas(seeds: string[], locationCode: number, languageCode: string, opts: IdeaOptions = {}): Promise<IdeasResult> {
+  const clean = [...new Set(seeds.map((k) => k.trim().toLowerCase()).filter((k) => k && k.length <= 80 && k.split(" ").length <= 10))].slice(0, MAX_IDEA_SEEDS);
+  if (!clean.length) return { ideas: [], cost: 0, returned: 0, total: 0, usedBroad: false };
+  const must = (opts.mustInclude ?? []).map((w) => w.trim().toLowerCase()).filter(Boolean);
+  const limit = must.length ? IDEAS_FETCH_WHEN_FILTERING : MAX_IDEAS;
+
+  let r = await askIdeas(clean, locationCode, languageCode, limit, opts.phraseMatch !== false);
+  let cost = r.cost;
+  let usedBroad = false;
+  // Whole-phrase matching can come back empty (DataForSEO does not document how it combines several starting
+  // phrases). Rather than show nothing, ask once more with broader matching and say so.
+  if (!r.items.length && opts.phraseMatch !== false) {
+    r = await askIdeas(clean, locationCode, languageCode, limit, false);
+    cost += r.cost;
+    usedBroad = true;
+  }
+
   const seen = new Set(clean);
   const ideas: KeywordIdea[] = [];
-  for (const it of block.items ?? []) {
+  for (const it of r.items) {
     const keyword = (it.keyword ?? "").trim().toLowerCase();
     if (!keyword || seen.has(keyword)) continue; // the seeds themselves are not "new ideas"
     if (must.length && !must.some((w) => keyword.includes(w))) continue;
@@ -233,5 +259,5 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
       difficulty: typeof it.keyword_properties?.keyword_difficulty === "number" ? it.keyword_properties.keyword_difficulty : null,
     });
   }
-  return { ideas: ideas.slice(0, MAX_IDEAS), cost: Number(task.cost) || 0, total: Number(block.total_count) || ideas.length };
+  return { ideas: ideas.slice(0, MAX_IDEAS), cost, returned: r.items.length, total: r.total || r.items.length, usedBroad };
 }
