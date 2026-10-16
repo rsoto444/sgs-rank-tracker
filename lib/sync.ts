@@ -109,7 +109,7 @@ export async function syncKeywordMetrics(opts: { siteId?: number; onlyKeywordIds
         ${opts.force || opts.onlyKeywordIds ? sql`` : sql`AND (k.metrics_at IS NULL OR k.metrics_at < now() - make_interval(days => ${METRICS_MAX_AGE_DAYS}))`}`;
     if (!rows.length) return;
 
-    const { byKey, failedKeys, errors } = await fetchKeywordMetrics(
+    const { byKey, failedKeys, errors, withVolume, withDifficulty } = await fetchKeywordMetrics(
       rows.map((r) => ({ keyword: r.keyword, locationCode: r.location_code, languageCode: r.language_code })),
     );
 
@@ -134,7 +134,9 @@ export async function syncKeywordMetrics(opts: { siteId?: number; onlyKeywordIds
       const mine = rows.filter((r) => r.site_id === siteId).length;
       const saved = done.get(siteId) ?? 0;
       await log(siteId, "metrics", errors.length === 0 && saved === mine,
-        errors.length ? `${saved} of ${mine} looked up. First error: ${errors[0]}` : `${saved} keywords looked up`);
+        errors.length
+          ? `${saved} of ${mine} looked up. First error: ${errors[0]}`
+          : `${saved} keywords looked up (${withVolume} with search volume, ${withDifficulty} with difficulty, across all sites in this run)`);
     }
   } catch (e) {
     console.error("keyword metrics failed:", (e as Error).message);

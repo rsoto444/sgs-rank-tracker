@@ -169,5 +169,13 @@ export async function fetchKeywordMetrics(items: KeywordMetricsInput[]) {
       }
     }
   }
-  return { byKey, failedKeys, errors };
+  // How many keywords came back with a number, so a log can say "0 with difficulty" instead of leaving a
+  // blank column unexplained. Rarely searched phrases often have no data in either source.
+  let withVolume = 0;
+  let withDifficulty = 0;
+  for (const m of byKey.values()) {
+    if (m.searchVolume !== null) withVolume++;
+    if (m.difficulty !== null) withDifficulty++;
+  }
+  return { byKey, failedKeys, errors, withVolume, withDifficulty };
 }

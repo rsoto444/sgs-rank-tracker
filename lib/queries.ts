@@ -17,13 +17,14 @@ export type KeywordRow = {
   search_volume: number | null;
   cpc: number | null;
   difficulty: number | null;
+  metrics_at: string | null;
 };
 
 export async function keywordRows(siteId: number) {
   return sql<KeywordRow[]>`
     SELECT k.id, k.keyword, l.position, l.url, l.checked_on::text, p.position AS prev_position, b.best,
            g.clicks, g.impressions, g.gsc_position,
-           k.search_volume, k.cpc::float8 AS cpc, k.difficulty
+           k.search_volume, k.cpc::float8 AS cpc, k.difficulty, k.metrics_at::text
     FROM keywords k
     LEFT JOIN LATERAL (
       SELECT position, url, checked_on FROM rank_checks WHERE keyword_id = k.id ORDER BY checked_on DESC LIMIT 1

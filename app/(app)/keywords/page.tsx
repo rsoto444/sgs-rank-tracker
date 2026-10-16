@@ -72,8 +72,8 @@ export default async function KeywordsPage() {
                 </td>
                 <td className="px-3 py-2.5"><Change value={change(k)} /></td>
                 <td className="px-3 py-2.5 text-ink-2">{k.best ? `#${k.best}` : "-"}</td>
-                <td className="px-3 py-2.5 text-right">{k.search_volume === null ? "-" : nf.format(k.search_volume)}</td>
-                <td className="px-3 py-2.5 text-ink-2">{k.difficulty === null ? "-" : `${k.difficulty} · ${difficultyLabel(k.difficulty)}`}</td>
+                <td className="px-3 py-2.5 text-right">{k.search_volume === null ? <span className="text-ink-3" title={k.metrics_at ? "Looked up: Google reports no search volume for this phrase" : "Not looked up yet"}>{k.metrics_at ? "no data" : "-"}</span> : nf.format(k.search_volume)}</td>
+                <td className="px-3 py-2.5 text-ink-2">{k.difficulty === null ? <span className="text-ink-3" title={k.metrics_at ? "Looked up: DataForSEO has no difficulty for this phrase" : "Not looked up yet"}>{k.metrics_at ? "no data" : "-"}</span> : `${k.difficulty} · ${difficultyLabel(k.difficulty)}`}</td>
                 <td className="px-3 py-2.5 text-right">{k.clicks === null ? "-" : nf.format(k.clicks)}</td>
                 <td className="px-3 py-2.5 text-right">{k.impressions === null ? "-" : nf.format(k.impressions)}</td>
                 <td className="px-3 py-2.5 text-right">{k.gsc_position === null ? "-" : k.gsc_position.toFixed(1)}</td>

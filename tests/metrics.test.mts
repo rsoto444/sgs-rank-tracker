@@ -115,3 +115,14 @@ test("never puts the credentials in an error message", async () => {
   const r = await fetchKeywordMetrics([us("alpha")]);
   assert.ok(r.errors.every((e) => !e.includes("SECRET-PASSWORD") && !e.includes("me@example.com")));
 });
+
+test("counts how many keywords came back with a volume and with a difficulty", async () => {
+  fakeApi((path, body) =>
+    path === VOL
+      ? { json: okTask([{ keyword: "a", search_volume: 90, cpc: 1, competition: "LOW" }, { keyword: "b", search_volume: null, cpc: null, competition: null }, { keyword: "c", search_volume: null, cpc: null, competition: null }]) }
+      : { json: okTask([{ items: [{ keyword: "a", keyword_difficulty: null }, { keyword: "b", keyword_difficulty: null }, { keyword: "c", keyword_difficulty: null }] }]) });
+  const r = await fetchKeywordMetrics([us("a"), us("b"), us("c")]);
+  assert.equal(r.withVolume, 1);
+  assert.equal(r.withDifficulty, 0);
+  assert.equal(r.byKey.size, 3);
+});
