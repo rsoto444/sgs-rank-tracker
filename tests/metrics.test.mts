@@ -140,6 +140,7 @@ test("asks for related keywords that have volume, most relevant first, and repor
   assert.deepEqual(calls[0].body.filters, ["keyword_info.search_volume", ">", 0]);
   assert.deepEqual(calls[0].body.order_by, ["relevance,desc", "keyword_info.search_volume,desc"]);
   assert.equal(calls[0].body.limit, MAX_IDEAS);
+  assert.equal(calls[0].body.closely_variants, true); // whole-phrase matching is the default
   assert.deepEqual(r.ideas.map((i) => i.keyword), ["lead follow up software", "speed to lead"]); // the seed itself is dropped
   assert.deepEqual(r.ideas[0], { keyword: "lead follow up software", searchVolume: 480, cpc: 1.2, competition: "LOW", difficulty: 41 });
   assert.equal(r.ideas[1].difficulty, null);
@@ -148,7 +149,7 @@ test("asks for related keywords that have volume, most relevant first, and repor
 
 test("caps the seeds and the number of ideas, and makes no request with no usable seed", async () => {
   const calls = fakeApi(() => ({ json: ideasTask([]) }));
-  await fetchKeywordIdeas(Array.from({ length: 25 }, (_, i) => `seed ${i}`), 2840, "en", 5000);
+  await fetchKeywordIdeas(Array.from({ length: 25 }, (_, i) => `seed ${i}`), 2840, "en");
   assert.equal(calls[0].body.keywords.length, MAX_IDEA_SEEDS);
   assert.equal(calls[0].body.limit, MAX_IDEAS);
   const none = fakeApi(() => ({ json: ideasTask([]) }));
@@ -160,4 +161,20 @@ test("caps the seeds and the number of ideas, and makes no request with no usabl
 test("an ideas request that fails throws, without the credentials in the message", async () => {
   fakeApi(() => ({ ok: false, status: 401, json: {} }));
   await assert.rejects(() => fetchKeywordIdeas(["a"], 2840, "en"), (e: Error) => !e.message.includes("SECRET-PASSWORD"));
+});
+
+test("loose matching can be switched on, and a must-include filter keeps only the relevant ideas", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([idea("yarrow growth habit", 10, null), idea("hvac lead follow up", 90, 12), idea("lead follow up for roofing", 50, 9), idea("metric system disadvantages", 50, 4)]) }));
+  const loose = await fetchKeywordIdeas(["lead follow up"], 2840, "en", { phraseMatch: false });
+  assert.equal(calls[0].body.closely_variants, false);
+  assert.equal(loose.ideas.length, 4);
+  const filtered = await fetchKeywordIdeas(["lead follow up"], 2840, "en", { mustInclude: ["HVAC", " roofing "] });
+  assert.equal(calls[1].body.limit, 100); // asks for more, then filters on our side
+  assert.deepEqual(filtered.ideas.map((i) => i.keyword), ["hvac lead follow up", "lead follow up for roofing"]);
+});
+
+test("never shows more than the ideas cap, even after filtering a big response", async () => {
+  fakeApi(() => ({ json: ideasTask(Array.from({ length: 100 }, (_, i) => idea(`roofing idea ${i}`, 10 + i, 5))) }));
+  const r = await fetchKeywordIdeas(["roofing"], 2840, "en", { mustInclude: ["roofing"] });
+  assert.equal(r.ideas.length, MAX_IDEAS);
 });

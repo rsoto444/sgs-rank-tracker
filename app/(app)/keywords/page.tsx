@@ -86,7 +86,7 @@ export default async function KeywordsPage() {
 
       {isAdmin && connected && (
         <div className="mt-5">
-          <KeywordIdeas defaultSeeds={rows.slice(0, 5).map((r) => r.keyword)} />
+          <KeywordIdeas />
         </div>
       )}
 

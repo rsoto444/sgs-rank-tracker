@@ -58,7 +58,11 @@ export async function findKeywordIdeas(_: IdeasState, form: FormData): Promise<I
   if (!seeds.length) return { error: "Type at least one starting keyword." };
   if (seeds.length > MAX_IDEA_SEEDS) return { error: `Use at most ${MAX_IDEA_SEEDS} starting keywords at a time.`, seeds };
   try {
-    const { ideas, cost } = await fetchKeywordIdeas(seeds, site.location_code, site.language_code);
+    const mustInclude = String(form.get("include") ?? "").split(/\r?\n|,/).map((w) => w.trim().toLowerCase()).filter(Boolean);
+    const { ideas, cost } = await fetchKeywordIdeas(seeds, site.location_code, site.language_code, {
+      phraseMatch: form.get("phrase") === "on",
+      mustInclude,
+    });
     // Phrases already tracked on this site are not new ideas.
     const tracked = new Set((await sql<{ keyword: string }[]>`SELECT lower(keyword) AS keyword FROM keywords WHERE site_id = ${site.id}`).map((r) => r.keyword));
     return { ideas: ideas.filter((i) => !tracked.has(i.keyword)), cost, seeds };

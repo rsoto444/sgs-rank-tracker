@@ -190,17 +190,30 @@ export async function fetchKeywordMetrics(items: KeywordMetricsInput[]) {
 const IDEAS_PATH = "/v3/dataforseo_labs/google/keyword_ideas/live";
 export const MAX_IDEA_SEEDS = 10;
 export const MAX_IDEAS = 40;
+// With a "must include" filter we ask for more and filter ourselves, so the 40 shown are the relevant ones.
+const IDEAS_FETCH_WHEN_FILTERING = 100;
 
 export type KeywordIdea = { keyword: string; searchVolume: number | null; cpc: number | null; competition: string | null; difficulty: number | null };
 
-export async function fetchKeywordIdeas(seeds: string[], locationCode: number, languageCode: string, limit = MAX_IDEAS) {
+export type IdeaOptions = {
+  // true = only phrases that contain the starting phrase as written (DataForSEO "closely_variants"). This is what
+  // keeps "lead follow up" from returning every phrase with the word "lead" or "follow" in it.
+  phraseMatch?: boolean;
+  // Keep only ideas that contain at least one of these words, checked on our side.
+  mustInclude?: string[];
+};
+
+export async function fetchKeywordIdeas(seeds: string[], locationCode: number, languageCode: string, opts: IdeaOptions = {}) {
+  const must = (opts.mustInclude ?? []).map((w) => w.trim().toLowerCase()).filter(Boolean);
+  const limit = must.length ? IDEAS_FETCH_WHEN_FILTERING : MAX_IDEAS;
   const clean = [...new Set(seeds.map((k) => k.trim().toLowerCase()).filter((k) => k && k.length <= 80 && k.split(" ").length <= 10))].slice(0, MAX_IDEA_SEEDS);
   if (!clean.length) return { ideas: [] as KeywordIdea[], cost: 0, total: 0 };
   const task = await callTask(IDEAS_PATH, [{
     keywords: clean,
     location_code: locationCode,
     language_code: languageCode,
-    limit: Math.min(Math.max(limit, 1), MAX_IDEAS),
+    limit,
+    closely_variants: opts.phraseMatch !== false,
     filters: ["keyword_info.search_volume", ">", 0],
     order_by: ["relevance,desc", "keyword_info.search_volume,desc"],
   }]);
@@ -210,6 +223,7 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
   for (const it of block.items ?? []) {
     const keyword = (it.keyword ?? "").trim().toLowerCase();
     if (!keyword || seen.has(keyword)) continue; // the seeds themselves are not "new ideas"
+    if (must.length && !must.some((w) => keyword.includes(w))) continue;
     seen.add(keyword);
     ideas.push({
       keyword,
@@ -219,5 +233,5 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
       difficulty: typeof it.keyword_properties?.keyword_difficulty === "number" ? it.keyword_properties.keyword_difficulty : null,
     });
   }
-  return { ideas, cost: Number(task.cost) || 0, total: Number(block.total_count) || ideas.length };
+  return { ideas: ideas.slice(0, MAX_IDEAS), cost: Number(task.cost) || 0, total: Number(block.total_count) || ideas.length };
 }

@@ -20,16 +20,23 @@ function TrackButton({ keyword }: { keyword: string }) {
 }
 
 /** Related keywords that have real search volume. Start from phrases you already track and add the good ones. */
-export default function KeywordIdeas({ defaultSeeds }: { defaultSeeds: string[] }) {
+export default function KeywordIdeas() {
   const [state, action, pending] = useActionState<IdeasState, FormData>(findKeywordIdeas, null);
   return (
     <section className="card p-4">
       <h2 className="text-sm font-semibold">Find keywords with search volume</h2>
       <p className="mb-3 text-xs text-ink-3">
-        Type up to 10 starting phrases, one per line. DataForSEO suggests related phrases people actually search for. One lookup costs a few cents.
+        Type up to 10 topic phrases, one per line, like what a customer would search for. Use topics, not your brand name. DataForSEO suggests related phrases people actually search for. One lookup costs a few cents.
       </p>
       <form action={action} className="space-y-3">
-        <textarea name="seeds" rows={4} className="input" defaultValue={defaultSeeds.join("\n")} placeholder={"lead follow up\nsales process"} />
+        <textarea name="seeds" rows={4} className="input" placeholder={"lead follow up\nsales process for contractors\nhome service business coaching"} />
+        <div>
+          <label className="label" htmlFor="include">Must also include one of these words (optional, comma separated)</label>
+          <input id="include" name="include" className="input" placeholder="contractor, hvac, roofing, plumbing, home service" />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-ink-2">
+          <input type="checkbox" name="phrase" defaultChecked /> Only phrases that contain my words (turn off for wider, looser ideas)
+        </label>
         <div className="flex items-center gap-3">
           <button className="btn" disabled={pending}>{pending ? "Looking..." : "Find ideas"}</button>
           {state?.error && <span className="text-sm text-bad">{state.error}</span>}
