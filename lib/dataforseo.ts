@@ -199,6 +199,8 @@ export type IdeaOptions = {
   // true = only phrases that contain the starting phrase as written (DataForSEO "closely_variants"). This is what
   // keeps "lead follow up" from returning every phrase with the word "lead" or "follow" in it.
   phraseMatch?: boolean;
+  // How many results to skip, for "show more": the next batch after the ones already shown.
+  offset?: number;
   // Keep only ideas that contain at least one of these words (for example trade words).
   mustInclude?: string[];
   // With mustInclude: ideas must ALSO contain at least one of these (for example "coaching", "marketing").
@@ -239,13 +241,14 @@ export function containsFromEach(keyword: string, groups: string[][]) {
   return groups.every((g) => g.length === 0 || g.some((w) => keyword.includes(w)));
 }
 
-async function askIdeas(seeds: string[], locationCode: number, languageCode: string, limit: number, phraseMatch: boolean, pattern: string | null = null) {
+async function askIdeas(seeds: string[], locationCode: number, languageCode: string, limit: number, phraseMatch: boolean, pattern: string | null = null, offset = 0) {
   const volume = ["keyword_info.search_volume", ">", 0];
   const task = await callTask(IDEAS_PATH, [{
     keywords: seeds,
     location_code: locationCode,
     language_code: languageCode,
     limit,
+    ...(offset > 0 ? { offset } : {}),
     closely_variants: phraseMatch,
     // With a pattern, DataForSEO itself keeps only phrases containing one of the words, so the results we get
     // are all on-topic, instead of filtering the top 100 generic ones on our side.
@@ -263,6 +266,7 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
   const must = clean2(opts.mustInclude);
   const also = clean2(opts.alsoInclude);
   const pattern = groupsPattern(must, also);
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
 
   let cost = 0;
   // One search. With must-include words it first lets DataForSEO filter by them; if it does not accept that
@@ -270,17 +274,17 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
   const run = async (phraseMatch: boolean) => {
     if (pattern) {
       try {
-        const r = await askIdeas(clean, locationCode, languageCode, MAX_IDEAS, phraseMatch, pattern);
+        const r = await askIdeas(clean, locationCode, languageCode, MAX_IDEAS, phraseMatch, pattern, offset);
         cost += r.cost;
         return r;
       } catch {
         /* the filter was not accepted: fall through to filtering on our side */
       }
-      const r = await askIdeas(clean, locationCode, languageCode, IDEAS_FETCH_WHEN_FILTERING, phraseMatch);
+      const r = await askIdeas(clean, locationCode, languageCode, IDEAS_FETCH_WHEN_FILTERING, phraseMatch, null, offset);
       cost += r.cost;
       return r;
     }
-    const r = await askIdeas(clean, locationCode, languageCode, MAX_IDEAS, phraseMatch);
+    const r = await askIdeas(clean, locationCode, languageCode, MAX_IDEAS, phraseMatch, null, offset);
     cost += r.cost;
     return r;
   };
@@ -289,7 +293,7 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
   let usedBroad = false;
   // Whole-phrase matching can come back empty (DataForSEO does not document how it combines several starting
   // phrases). Rather than show nothing, ask once more with broader matching and say so.
-  if (!r.items.length && opts.phraseMatch !== false) {
+  if (!r.items.length && opts.phraseMatch !== false && offset === 0) {
     r = await run(false);
     usedBroad = true;
   }

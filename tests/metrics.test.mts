@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 process.env.DATAFORSEO_LOGIN = "me@example.com";
 process.env.DATAFORSEO_PASSWORD = "SECRET-PASSWORD";
 const { fetchKeywordMetrics, metricsKey, fetchKeywordIdeas, MAX_IDEA_SEEDS, MAX_IDEAS, wordsPattern, groupsPattern, containsFromEach } = await import("../lib/dataforseo.ts");
+const { sortIdeas, nextSort } = await import("../lib/ideas-sort.ts");
+const { sortKeywordRows, nextKeywordSort } = await import("../lib/keyword-sort.ts");
 
 type Call = { path: string; headers: Record<string, string>; body: any };
 function fakeApi(handler: (path: string, body: any) => { ok?: boolean; status?: number; json: any }) {
@@ -254,4 +256,96 @@ test("works with only the second list", async () => {
   const calls = fakeApi(() => ({ json: ideasTask([idea("sales coaching", 90, 10)]) }));
   await fetchKeywordIdeas(["x"], 2840, "en", { alsoInclude: ["coaching"] });
   assert.deepEqual(calls[0].body.filters[2], ["keyword", "regex", "(coaching)"]);
+});
+
+test("show more: asks for the next batch with an offset, and only the first page gets the broader retry", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([], 0.01, 500) }));
+  const first = await fetchKeywordIdeas(["lead follow up"], 2840, "en");
+  assert.equal(calls.length, 2); // empty first page: whole-phrase, then the broader retry
+  assert.equal("offset" in calls[0].body, false);
+  const more = await fetchKeywordIdeas(["lead follow up"], 2840, "en", { offset: 40 });
+  assert.equal(calls.length, 3); // an empty LATER page just means there is nothing more: no retry
+  assert.equal(calls[2].body.offset, 40);
+  assert.equal(more.usedBroad, false);
+  assert.equal(first.usedBroad, true);
+});
+
+test("show more passes the same filters with the offset, and reports the raw count fetched", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([idea("hvac marketing tips", 60, 9), idea("not relevant", 40, 3)], 0.0168, 202) }));
+  const r = await fetchKeywordIdeas(["hvac"], 2840, "en", { offset: 40, mustInclude: ["hvac"], alsoInclude: ["marketing"] });
+  assert.equal(calls[0].body.offset, 40);
+  assert.deepEqual(calls[0].body.filters[2], ["keyword", "regex", "((hvac).*(marketing)|(marketing).*(hvac))"]);
+  assert.equal(r.returned, 2); // 2 came back from DataForSEO, even though only 1 passes our own check
+  assert.equal(r.ideas.length, 1);
+  assert.equal(r.total, 202);
+});
+
+test("sorting: by phrase, by volume (high first to start), by difficulty, with missing numbers always last", () => {
+  const rows = [
+    { keyword: "b", searchVolume: 50, difficulty: null },
+    { keyword: "a", searchVolume: 1000, difficulty: 30 },
+    { keyword: "c", searchVolume: null, difficulty: 5 },
+    { keyword: "d", searchVolume: 50, difficulty: 5 },
+  ];
+  assert.deepEqual(sortIdeas(rows, null).map((r) => r.keyword), ["b", "a", "c", "d"]); // as returned
+  assert.deepEqual(sortIdeas(rows, { key: "keyword", dir: "asc" }).map((r) => r.keyword), ["a", "b", "c", "d"]);
+  assert.deepEqual(sortIdeas(rows, { key: "keyword", dir: "desc" }).map((r) => r.keyword), ["d", "c", "b", "a"]);
+  assert.deepEqual(sortIdeas(rows, { key: "searchVolume", dir: "desc" }).map((r) => r.keyword), ["a", "b", "d", "c"]); // ties keep their order, null last
+  assert.deepEqual(sortIdeas(rows, { key: "searchVolume", dir: "asc" }).map((r) => r.keyword), ["b", "d", "a", "c"]); // null still last
+  assert.deepEqual(sortIdeas(rows, { key: "difficulty", dir: "asc" }).map((r) => r.keyword), ["c", "d", "a", "b"]);
+  assert.deepEqual(sortIdeas(rows, { key: "difficulty", dir: "desc" }).map((r) => r.keyword), ["a", "c", "d", "b"]);
+  assert.deepEqual(rows.map((r) => r.keyword), ["b", "a", "c", "d"]); // the input is not changed
+});
+
+test("clicking a header: volume starts high to low, others low to high, then each click flips", () => {
+  assert.deepEqual(nextSort(null, "searchVolume"), { key: "searchVolume", dir: "desc" });
+  assert.deepEqual(nextSort(null, "keyword"), { key: "keyword", dir: "asc" });
+  assert.deepEqual(nextSort({ key: "keyword", dir: "asc" }, "keyword"), { key: "keyword", dir: "desc" });
+  assert.deepEqual(nextSort({ key: "keyword", dir: "desc" }, "difficulty"), { key: "difficulty", dir: "asc" });
+});
+
+const kw = (keyword: string, o: Record<string, any> = {}) => ({
+  keyword, position: null, checked_on: "2026-10-16", change: null, best: null, search_volume: null, difficulty: null, clicks: null, impressions: null, gsc_position: null, ...o,
+});
+
+test("main table sorting: position puts the best rank first, and unranked and unchecked go last", () => {
+  const rows = [
+    kw("not in top 100", { position: null, checked_on: "2026-10-16" }),
+    kw("ranks 12", { position: 12 }),
+    kw("never checked", { position: null, checked_on: null }),
+    kw("ranks 3", { position: 3 }),
+  ];
+  assert.deepEqual(sortKeywordRows(rows, { key: "position", dir: "asc" }).map((r) => r.keyword), ["ranks 3", "ranks 12", "not in top 100", "never checked"]);
+  assert.deepEqual(sortKeywordRows(rows, { key: "position", dir: "desc" }).map((r) => r.keyword), ["ranks 12", "ranks 3", "not in top 100", "never checked"]);
+});
+
+test("main table sorting: every column, with missing numbers always last and ties keeping their order", () => {
+  const rows = [
+    kw("a", { change: -2, best: 9, search_volume: 50, difficulty: 30, clicks: 4, impressions: 40, gsc_position: 8.5 }),
+    kw("b", { change: 5, best: 2, search_volume: 500, difficulty: 10, clicks: 20, impressions: 90, gsc_position: 2.1 }),
+    kw("c", { change: null, best: null, search_volume: null, difficulty: null, clicks: null, impressions: null, gsc_position: null }),
+    kw("d", { change: 0, best: 2, search_volume: 500, difficulty: 55, clicks: 0, impressions: 5, gsc_position: 40 }),
+  ];
+  const order = (key: any, dir: "asc" | "desc") => sortKeywordRows(rows, { key, dir }).map((r) => r.keyword).join("");
+  assert.equal(order("keyword", "asc"), "abcd");
+  assert.equal(order("keyword", "desc"), "dcba");
+  assert.equal(order("change", "desc"), "bdac");
+  assert.equal(order("best", "asc"), "bdac"); // b and d tie at 2: original order
+  assert.equal(order("searchVolume", "desc"), "bdac");
+  assert.equal(order("searchVolume", "asc"), "abdc"); // b and d tie at 500 and keep their order; missing still last
+  assert.equal(order("difficulty", "asc"), "badc");
+  assert.equal(order("clicks", "desc"), "badc");
+  assert.equal(order("impressions", "desc"), "badc");
+  assert.equal(order("gscPosition", "asc"), "badc");
+  assert.deepEqual(sortKeywordRows(rows, null).map((r) => r.keyword), ["a", "b", "c", "d"]); // no sort: server order
+  assert.deepEqual(rows.map((r) => r.keyword), ["a", "b", "c", "d"]); // input not changed
+});
+
+test("main table header clicks: high-is-good columns start high to low, the rest low to high, then flip", () => {
+  assert.deepEqual(nextKeywordSort(null, "searchVolume"), { key: "searchVolume", dir: "desc" });
+  assert.deepEqual(nextKeywordSort(null, "change"), { key: "change", dir: "desc" });
+  assert.deepEqual(nextKeywordSort(null, "clicks"), { key: "clicks", dir: "desc" });
+  assert.deepEqual(nextKeywordSort(null, "position"), { key: "position", dir: "asc" });
+  assert.deepEqual(nextKeywordSort(null, "difficulty"), { key: "difficulty", dir: "asc" });
+  assert.deepEqual(nextKeywordSort({ key: "position", dir: "asc" }, "position"), { key: "position", dir: "desc" });
 });

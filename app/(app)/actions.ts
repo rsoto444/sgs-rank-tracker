@@ -83,6 +83,29 @@ export async function findKeywordIdeas(_: IdeasState, form: FormData): Promise<I
   }
 }
 
+export type MoreIdeas = { error?: string; ideas?: KeywordIdea[]; cost?: number; returned?: number; total?: number };
+
+/** The next batch of the same search ("show more"). `offset` is how many DataForSEO results were already fetched. */
+export async function moreKeywordIdeas(input: { seeds: string; include: string; also: string; phrase: boolean }, offset: number): Promise<MoreIdeas> {
+  const site = await activeSiteForAdmin();
+  if (!dataForSeoConnected()) return { error: "DataForSEO is not connected yet." };
+  const words = (text: string) => String(text ?? "").split(/\r?\n|,/).map((w) => w.trim().toLowerCase().replace(/\s+/g, " ")).filter(Boolean);
+  const seeds = [...new Set(words(input.seeds))];
+  if (!seeds.length || seeds.length > MAX_IDEA_SEEDS) return { error: "Run the search again first." };
+  try {
+    const r = await fetchKeywordIdeas(seeds, site.location_code, site.language_code, {
+      phraseMatch: !!input.phrase,
+      mustInclude: words(input.include),
+      alsoInclude: words(input.also),
+      offset: Math.max(0, Math.floor(Number(offset) || 0)),
+    });
+    const tracked = new Set((await sql<{ keyword: string }[]>`SELECT lower(keyword) AS keyword FROM keywords WHERE site_id = ${site.id}`).map((x) => x.keyword));
+    return { ideas: r.ideas.filter((i) => !tracked.has(i.keyword)), cost: r.cost, returned: r.returned, total: r.total };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export async function trackQuery(query: string) {
   const site = await activeSiteForAdmin();
   const added = await sql<{ id: number }[]>`INSERT INTO keywords (site_id, keyword) VALUES (${site.id}, ${query.trim().toLowerCase()}) ON CONFLICT DO NOTHING RETURNING id`;
