@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 process.env.DATAFORSEO_LOGIN = "me@example.com";
 process.env.DATAFORSEO_PASSWORD = "SECRET-PASSWORD";
-const { fetchKeywordMetrics, metricsKey, fetchKeywordIdeas, MAX_IDEA_SEEDS, MAX_IDEAS } = await import("../lib/dataforseo.ts");
+const { fetchKeywordMetrics, metricsKey, fetchKeywordIdeas, MAX_IDEA_SEEDS, MAX_IDEAS, wordsPattern } = await import("../lib/dataforseo.ts");
 
 type Call = { path: string; headers: Record<string, string>; body: any };
 function fakeApi(handler: (path: string, body: any) => { ok?: boolean; status?: number; json: any }) {
@@ -137,7 +137,7 @@ test("asks for related keywords that have volume, most relevant first, and repor
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, IDEAS);
   assert.deepEqual(calls[0].body.keywords, ["lead follow up"]);
-  assert.deepEqual(calls[0].body.filters, ["keyword_info.search_volume", ">", 0]);
+  assert.deepEqual(calls[0].body.filters, ["keyword_info.search_volume", ">", 0]); // no words given: volume filter only
   assert.deepEqual(calls[0].body.order_by, ["relevance,desc", "keyword_info.search_volume,desc"]);
   assert.equal(calls[0].body.limit, MAX_IDEAS);
   assert.equal(calls[0].body.closely_variants, true); // whole-phrase matching is the default
@@ -169,7 +169,9 @@ test("loose matching can be switched on, and a must-include filter keeps only th
   assert.equal(calls[0].body.closely_variants, false);
   assert.equal(loose.ideas.length, 4);
   const filtered = await fetchKeywordIdeas(["lead follow up"], 2840, "en", { mustInclude: ["HVAC", " roofing "] });
-  assert.equal(calls[1].body.limit, 100); // asks for more, then filters on our side
+  // DataForSEO is asked to filter by the words itself, and we still check the results on our side.
+  assert.deepEqual(calls[1].body.filters, [["keyword_info.search_volume", ">", 0], "and", ["keyword", "regex", "(hvac|roofing)"]]);
+  assert.equal(calls[1].body.limit, MAX_IDEAS);
   assert.deepEqual(filtered.ideas.map((i) => i.keyword), ["hvac lead follow up", "lead follow up for roofing"]);
 });
 
@@ -177,6 +179,23 @@ test("never shows more than the ideas cap, even after filtering a big response",
   fakeApi(() => ({ json: ideasTask(Array.from({ length: 100 }, (_, i) => idea(`roofing idea ${i}`, 10 + i, 5))) }));
   const r = await fetchKeywordIdeas(["roofing"], 2840, "en", { mustInclude: ["roofing"] });
   assert.equal(r.ideas.length, MAX_IDEAS);
+});
+
+test("if DataForSEO rejects the word filter, falls back to asking for 100 and filtering here", async () => {
+  const calls = fakeApi((_p, body) =>
+    Array.isArray(body.filters[0]) // the nested filter form
+      ? { json: { status_code: 20000, tasks: [{ status_code: 40501, status_message: "Invalid Field: filters", result: null }] } }
+      : { json: ideasTask([idea("roofing lead follow up", 70, 8), idea("leadership follow up", 20, 2)], 0.02, 2) });
+  const r = await fetchKeywordIdeas(["lead follow up"], 2840, "en", { mustInclude: ["roofing"] });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].body.limit, 100);
+  assert.deepEqual(calls[1].body.filters, ["keyword_info.search_volume", ">", 0]);
+  assert.deepEqual(r.ideas.map((i) => i.keyword), ["roofing lead follow up"]); // the leadership one is filtered here
+});
+
+test("builds a safe word pattern: only letters, digits, spaces and hyphens survive", () => {
+  assert.equal(wordsPattern(["HVAC", "home service", "a|b", "x.*y", "(", ""]), "(hvac|home service|ab|xy)");
+  assert.equal(wordsPattern(["", "  "]), null);
 });
 
 test("when whole-phrase matching finds nothing, retries once with broader matching, says so, and adds up the cost", async () => {

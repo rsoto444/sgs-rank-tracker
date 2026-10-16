@@ -51,27 +51,32 @@ export async function addKeywords(_: string | null, form: FormData) {
 export type IdeasState = {
   error?: string; ideas?: KeywordIdea[]; cost?: number; seeds?: string[];
   returned?: number; total?: number; usedBroad?: boolean; alreadyTracked?: number; mustInclude?: string[];
+  // What was typed, so the form can keep it (the page resets forms after an action), and a stamp that remounts it.
+  input?: { seeds: string; include: string; phrase: boolean };
+  runId?: number;
 } | null;
 
 /** Related keywords that have real search volume, for the seeds typed in. Admin only; one lookup per click. */
 export async function findKeywordIdeas(_: IdeasState, form: FormData): Promise<IdeasState> {
   const site = await activeSiteForAdmin();
-  if (!dataForSeoConnected()) return { error: "DataForSEO is not connected yet." };
-  const seeds = [...new Set(String(form.get("seeds") ?? "").split(/\r?\n|,/).map((k) => k.trim().toLowerCase().replace(/\s+/g, " ")).filter(Boolean))];
-  if (!seeds.length) return { error: "Type at least one starting keyword." };
-  if (seeds.length > MAX_IDEA_SEEDS) return { error: `Use at most ${MAX_IDEA_SEEDS} starting keywords at a time.`, seeds };
+  const input = { seeds: String(form.get("seeds") ?? ""), include: String(form.get("include") ?? ""), phrase: form.get("phrase") === "on" };
+  const runId = Date.now();
+  if (!dataForSeoConnected()) return { error: "DataForSEO is not connected yet.", input, runId };
+  const seeds = [...new Set(input.seeds.split(/\r?\n|,/).map((k) => k.trim().toLowerCase().replace(/\s+/g, " ")).filter(Boolean))];
+  if (!seeds.length) return { error: "Type at least one starting keyword.", input, runId };
+  if (seeds.length > MAX_IDEA_SEEDS) return { error: `Use at most ${MAX_IDEA_SEEDS} starting keywords at a time.`, seeds, input, runId };
   try {
-    const mustInclude = String(form.get("include") ?? "").split(/\r?\n|,/).map((w) => w.trim().toLowerCase()).filter(Boolean);
+    const mustInclude = input.include.split(/\r?\n|,/).map((w) => w.trim().toLowerCase()).filter(Boolean);
     const { ideas, cost, returned, total, usedBroad } = await fetchKeywordIdeas(seeds, site.location_code, site.language_code, {
-      phraseMatch: form.get("phrase") === "on",
+      phraseMatch: input.phrase,
       mustInclude,
     });
     // Phrases already tracked on this site are not new ideas.
     const tracked = new Set((await sql<{ keyword: string }[]>`SELECT lower(keyword) AS keyword FROM keywords WHERE site_id = ${site.id}`).map((r) => r.keyword));
     const fresh = ideas.filter((i) => !tracked.has(i.keyword));
-    return { ideas: fresh, cost, seeds, returned, total, usedBroad, alreadyTracked: ideas.length - fresh.length, mustInclude };
+    return { ideas: fresh, cost, seeds, returned, total, usedBroad, alreadyTracked: ideas.length - fresh.length, mustInclude, input, runId };
   } catch (e) {
-    return { error: (e as Error).message, seeds };
+    return { error: (e as Error).message, seeds, input, runId };
   }
 }
 

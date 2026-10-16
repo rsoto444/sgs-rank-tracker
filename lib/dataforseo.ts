@@ -213,14 +213,24 @@ export type IdeasResult = {
   usedBroad: boolean;
 };
 
-async function askIdeas(seeds: string[], locationCode: number, languageCode: string, limit: number, phraseMatch: boolean) {
+// "hvac" and "home service" become the pattern (hvac|home service), letters, digits, spaces and hyphens only, so
+// nothing a user types can change what the pattern means.
+export function wordsPattern(words: string[]) {
+  const safe = words.map((w) => w.toLowerCase().replace(/[^a-z0-9 -]/g, "").trim()).filter(Boolean);
+  return safe.length ? `(${safe.join("|")})` : null;
+}
+
+async function askIdeas(seeds: string[], locationCode: number, languageCode: string, limit: number, phraseMatch: boolean, pattern: string | null = null) {
+  const volume = ["keyword_info.search_volume", ">", 0];
   const task = await callTask(IDEAS_PATH, [{
     keywords: seeds,
     location_code: locationCode,
     language_code: languageCode,
     limit,
     closely_variants: phraseMatch,
-    filters: ["keyword_info.search_volume", ">", 0],
+    // With a pattern, DataForSEO itself keeps only phrases containing one of the words, so the results we get
+    // are all on-topic, instead of filtering the top 100 generic ones on our side.
+    filters: pattern ? [volume, "and", ["keyword", "regex", pattern]] : volume,
     order_by: ["relevance,desc", "keyword_info.search_volume,desc"],
   }]);
   const block = (task.result?.[0] ?? {}) as { total_count?: number; items?: { keyword?: string; keyword_info?: { search_volume?: number | null; cpc?: number | null; competition_level?: string | null }; keyword_properties?: { keyword_difficulty?: number | null } }[] };
@@ -231,16 +241,35 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
   const clean = [...new Set(seeds.map((k) => k.trim().toLowerCase()).filter((k) => k && k.length <= 80 && k.split(" ").length <= 10))].slice(0, MAX_IDEA_SEEDS);
   if (!clean.length) return { ideas: [], cost: 0, returned: 0, total: 0, usedBroad: false };
   const must = (opts.mustInclude ?? []).map((w) => w.trim().toLowerCase()).filter(Boolean);
-  const limit = must.length ? IDEAS_FETCH_WHEN_FILTERING : MAX_IDEAS;
+  const pattern = wordsPattern(must);
 
-  let r = await askIdeas(clean, locationCode, languageCode, limit, opts.phraseMatch !== false);
-  let cost = r.cost;
+  let cost = 0;
+  // One search. With must-include words it first lets DataForSEO filter by them; if it does not accept that
+  // filter, it falls back to asking for more and filtering here.
+  const run = async (phraseMatch: boolean) => {
+    if (pattern) {
+      try {
+        const r = await askIdeas(clean, locationCode, languageCode, MAX_IDEAS, phraseMatch, pattern);
+        cost += r.cost;
+        return r;
+      } catch {
+        /* the filter was not accepted: fall through to filtering on our side */
+      }
+      const r = await askIdeas(clean, locationCode, languageCode, IDEAS_FETCH_WHEN_FILTERING, phraseMatch);
+      cost += r.cost;
+      return r;
+    }
+    const r = await askIdeas(clean, locationCode, languageCode, MAX_IDEAS, phraseMatch);
+    cost += r.cost;
+    return r;
+  };
+
+  let r = await run(opts.phraseMatch !== false);
   let usedBroad = false;
   // Whole-phrase matching can come back empty (DataForSEO does not document how it combines several starting
   // phrases). Rather than show nothing, ask once more with broader matching and say so.
   if (!r.items.length && opts.phraseMatch !== false) {
-    r = await askIdeas(clean, locationCode, languageCode, limit, false);
-    cost += r.cost;
+    r = await run(false);
     usedBroad = true;
   }
 
