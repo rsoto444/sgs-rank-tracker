@@ -32,9 +32,15 @@ export default function KeywordIdeas() {
         {/* The page resets forms after a search; the values come back in the result so what you typed stays put. */}
         <div key={state?.runId ?? 0} className="space-y-3">
           <textarea name="seeds" rows={4} className="input" defaultValue={state?.input?.seeds ?? ""} placeholder={"lead follow up\nsales process for contractors\nhome service business coaching"} />
-          <div>
-            <label className="label" htmlFor="include">Must also include one of these words (optional, comma separated)</label>
-            <input id="include" name="include" className="input" defaultValue={state?.input?.include ?? ""} placeholder="contractor, hvac, roofing, plumbing, home service" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="include">Must include one of these words (optional)</label>
+              <input id="include" name="include" className="input" defaultValue={state?.input?.include ?? ""} placeholder="contractor, hvac, roofing, plumbing" />
+            </div>
+            <div>
+              <label className="label" htmlFor="also">...and also one of these (optional)</label>
+              <input id="also" name="also" className="input" defaultValue={state?.input?.also ?? ""} placeholder="coaching, consulting, marketing, leads, crm" />
+            </div>
           </div>
           <label className="flex items-center gap-2 text-sm text-ink-2">
             <input type="checkbox" name="phrase" defaultChecked={state?.input ? state.input.phrase : true} /> Only phrases that contain my words (turn off for wider, looser ideas)
@@ -55,6 +61,7 @@ export default function KeywordIdeas() {
           {state.usedBroad && "No phrases matched exactly, so these are broader ideas. "}
           DataForSEO returned {state.returned ?? 0} idea{state.returned === 1 ? "" : "s"} with search volume{state.total && state.total > (state.returned ?? 0) ? ` (${state.total.toLocaleString()} exist)` : ""}
           {state.mustInclude && state.mustInclude.length > 0 ? `, filtered to those containing ${state.mustInclude.join(" or ")}` : ""}
+          {state.alsoInclude && state.alsoInclude.length > 0 ? `${state.mustInclude && state.mustInclude.length > 0 ? " and also" : ", filtered to those containing"} ${state.alsoInclude.join(" or ")}` : ""}
           {state.alreadyTracked ? `; ${state.alreadyTracked} already tracked` : ""}.
         </p>
       )}

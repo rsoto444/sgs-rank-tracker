@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 
 process.env.DATAFORSEO_LOGIN = "me@example.com";
 process.env.DATAFORSEO_PASSWORD = "SECRET-PASSWORD";
-const { fetchKeywordMetrics, metricsKey, fetchKeywordIdeas, MAX_IDEA_SEEDS, MAX_IDEAS, wordsPattern } = await import("../lib/dataforseo.ts");
+const { fetchKeywordMetrics, metricsKey, fetchKeywordIdeas, MAX_IDEA_SEEDS, MAX_IDEAS, wordsPattern, groupsPattern, containsFromEach } = await import("../lib/dataforseo.ts");
 
 type Call = { path: string; headers: Record<string, string>; body: any };
 function fakeApi(handler: (path: string, body: any) => { ok?: boolean; status?: number; json: any }) {
@@ -229,4 +229,29 @@ test("reports what DataForSEO returned even when our must-include filter removes
   const r = await fetchKeywordIdeas(["x"], 2840, "en", { mustInclude: ["roofing"] });
   assert.equal(r.ideas.length, 0);
   assert.equal(r.returned, 2);
+});
+
+test("two word lists make one pattern needing a word from each, in either order", () => {
+  assert.equal(groupsPattern(["hvac", "roofing"], ["coaching", "marketing"]), "((hvac|roofing).*(coaching|marketing)|(coaching|marketing).*(hvac|roofing))");
+  assert.equal(groupsPattern(["hvac"], []), "(hvac)");
+  assert.equal(groupsPattern([], ["coaching"]), "(coaching)");
+  assert.equal(groupsPattern([], []), null);
+  assert.equal(containsFromEach("hvac marketing tips", [["hvac"], ["marketing"]]), true);
+  assert.equal(containsFromEach("coaching for roofers", [["roofing", "roofers"], ["coaching"]]), true);
+  assert.equal(containsFromEach("licensed roofing contractor", [["roofing"], ["coaching", "marketing"]]), false);
+  assert.equal(containsFromEach("anything", [[], []]), true);
+});
+
+test("sends the two-list pattern to DataForSEO and keeps only phrases with a word from each list", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([idea("hvac marketing ideas", 140, 20), idea("licensed roofing contractor", 590, 7), idea("coaching for contractors", 50, 4), idea("contractor leads", 300, 15)], 0.0168, 1200) }));
+  const r = await fetchKeywordIdeas(["contractor business"], 2840, "en", { mustInclude: ["hvac", "contractor", "roofing"], alsoInclude: ["coaching", "marketing", "leads"] });
+  assert.deepEqual(calls[0].body.filters[2], ["keyword", "regex", "((hvac|contractor|roofing).*(coaching|marketing|leads)|(coaching|marketing|leads).*(hvac|contractor|roofing))"]);
+  assert.equal(calls[0].body.limit, MAX_IDEAS);
+  assert.deepEqual(r.ideas.map((i) => i.keyword), ["hvac marketing ideas", "coaching for contractors", "contractor leads"]); // the consumer search is dropped
+});
+
+test("works with only the second list", async () => {
+  const calls = fakeApi(() => ({ json: ideasTask([idea("sales coaching", 90, 10)]) }));
+  await fetchKeywordIdeas(["x"], 2840, "en", { alsoInclude: ["coaching"] });
+  assert.deepEqual(calls[0].body.filters[2], ["keyword", "regex", "(coaching)"]);
 });

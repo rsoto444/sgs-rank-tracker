@@ -199,8 +199,10 @@ export type IdeaOptions = {
   // true = only phrases that contain the starting phrase as written (DataForSEO "closely_variants"). This is what
   // keeps "lead follow up" from returning every phrase with the word "lead" or "follow" in it.
   phraseMatch?: boolean;
-  // Keep only ideas that contain at least one of these words, checked on our side.
+  // Keep only ideas that contain at least one of these words (for example trade words).
   mustInclude?: string[];
+  // With mustInclude: ideas must ALSO contain at least one of these (for example "coaching", "marketing").
+  alsoInclude?: string[];
 };
 
 export type IdeasResult = {
@@ -218,6 +220,23 @@ export type IdeasResult = {
 export function wordsPattern(words: string[]) {
   const safe = words.map((w) => w.toLowerCase().replace(/[^a-z0-9 -]/g, "").trim()).filter(Boolean);
   return safe.length ? `(${safe.join("|")})` : null;
+}
+
+/**
+ * The filter pattern for one or two word lists. One list: any of its words. Two lists: a word from EACH, in
+ * either order, so "(hvac|roofing)" and "(coaching|marketing)" match "hvac marketing" and "coaching for roofers"
+ * but not "licensed roofing contractor". Returns null when there are no words at all.
+ */
+export function groupsPattern(a: string[], b: string[]) {
+  const pa = wordsPattern(a);
+  const pb = wordsPattern(b);
+  if (pa && pb) return `(${pa}.*${pb}|${pb}.*${pa})`;
+  return pa ?? pb;
+}
+
+/** True when the phrase contains at least one word from every non-empty list. */
+export function containsFromEach(keyword: string, groups: string[][]) {
+  return groups.every((g) => g.length === 0 || g.some((w) => keyword.includes(w)));
 }
 
 async function askIdeas(seeds: string[], locationCode: number, languageCode: string, limit: number, phraseMatch: boolean, pattern: string | null = null) {
@@ -240,8 +259,10 @@ async function askIdeas(seeds: string[], locationCode: number, languageCode: str
 export async function fetchKeywordIdeas(seeds: string[], locationCode: number, languageCode: string, opts: IdeaOptions = {}): Promise<IdeasResult> {
   const clean = [...new Set(seeds.map((k) => k.trim().toLowerCase()).filter((k) => k && k.length <= 80 && k.split(" ").length <= 10))].slice(0, MAX_IDEA_SEEDS);
   if (!clean.length) return { ideas: [], cost: 0, returned: 0, total: 0, usedBroad: false };
-  const must = (opts.mustInclude ?? []).map((w) => w.trim().toLowerCase()).filter(Boolean);
-  const pattern = wordsPattern(must);
+  const clean2 = (list?: string[]) => (list ?? []).map((w) => w.trim().toLowerCase()).filter(Boolean);
+  const must = clean2(opts.mustInclude);
+  const also = clean2(opts.alsoInclude);
+  const pattern = groupsPattern(must, also);
 
   let cost = 0;
   // One search. With must-include words it first lets DataForSEO filter by them; if it does not accept that
@@ -278,7 +299,7 @@ export async function fetchKeywordIdeas(seeds: string[], locationCode: number, l
   for (const it of r.items) {
     const keyword = (it.keyword ?? "").trim().toLowerCase();
     if (!keyword || seen.has(keyword)) continue; // the seeds themselves are not "new ideas"
-    if (must.length && !must.some((w) => keyword.includes(w))) continue;
+    if (!containsFromEach(keyword, [must, also])) continue;
     seen.add(keyword);
     ideas.push({
       keyword,
