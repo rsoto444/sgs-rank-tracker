@@ -24,3 +24,9 @@ export function cleanDomain(input: string) {
     .replace(/^www\./, "")
     .replace(/\/.*$/, "");
 }
+
+/** DataForSEO's keyword difficulty runs 0 (easy) to 100 (hard). */
+export function difficultyLabel(d: number | null | undefined) {
+  if (d == null) return "";
+  return d < 30 ? "easy" : d < 60 ? "moderate" : "hard";
+}

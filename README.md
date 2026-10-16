@@ -8,6 +8,7 @@ Built Sunday 27 September.
 
 - **Site dropdown** at the top. Agency sites and client sites, grouped.
 - **Keywords:** type them in, and DataForSEO checks each one's Google position every day. Search Console adds real clicks and impressions, and suggests searches you already show up for.
+  Each keyword also shows its monthly searches and how hard it is to rank for (difficulty, 0 to 100). These come from DataForSEO in two cheap batch requests, are looked up when a keyword is added, and refresh about once a month. The **Refresh volume and difficulty** button on the Keywords page refreshes them on demand.
 - **Visitors:** from a one-line tracking snippet, from Google Analytics 4, or both.
 - **Logins:** your team sees every site. Each client gets a login that only sees their own site.
 

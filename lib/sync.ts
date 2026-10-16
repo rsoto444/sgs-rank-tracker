@@ -1,13 +1,13 @@
 import "server-only";
 import { sql } from "./db";
 import type { Site } from "./sites";
-import { checkRankLive, dataForSeoConnected, getRankTask, postRankTasks, readyRankTaskIds } from "./dataforseo";
+import { checkRankLive, dataForSeoConnected, fetchKeywordMetrics, getRankTask, metricsKey, postRankTasks, readyRankTaskIds } from "./dataforseo";
 import { googleConnected } from "./google";
 import { fetchGscQueries } from "./gsc";
 import { fetchGa4 } from "./ga4";
 import { daysAgo, isoDay } from "./format";
 
-type Source = "dataforseo" | "gsc" | "ga4";
+type Source = "dataforseo" | "gsc" | "ga4" | "metrics";
 
 async function log(siteId: number, source: Source, ok: boolean, message: string) {
   await sql`
@@ -89,6 +89,58 @@ export async function queueDailyRanks() {
   }
 }
 
+// Volume and difficulty change slowly, so a keyword is refreshed about once a month.
+const METRICS_MAX_AGE_DAYS = 30;
+
+/**
+ * Looks up monthly searches, cost per click and difficulty. By default only keywords never looked up or
+ * older than 30 days; `force` refreshes them all. Never throws: a failure is logged on the Connections
+ * page and the keyword is tried again next time, so it cannot break the daily rank checks.
+ */
+export async function syncKeywordMetrics(opts: { siteId?: number; onlyKeywordIds?: number[]; force?: boolean } = {}) {
+  if (!dataForSeoConnected()) return;
+  try {
+    const rows = await sql<{ id: number; keyword: string; site_id: number; location_code: number; language_code: string }[]>`
+      SELECT k.id, k.keyword, s.id AS site_id, s.location_code, s.language_code
+      FROM keywords k JOIN sites s ON s.id = k.site_id
+      WHERE true
+        ${opts.siteId ? sql`AND k.site_id = ${opts.siteId}` : sql``}
+        ${opts.onlyKeywordIds ? sql`AND k.id = ANY(${opts.onlyKeywordIds})` : sql``}
+        ${opts.force || opts.onlyKeywordIds ? sql`` : sql`AND (k.metrics_at IS NULL OR k.metrics_at < now() - make_interval(days => ${METRICS_MAX_AGE_DAYS}))`}`;
+    if (!rows.length) return;
+
+    const { byKey, failedKeys, errors } = await fetchKeywordMetrics(
+      rows.map((r) => ({ keyword: r.keyword, locationCode: r.location_code, languageCode: r.language_code })),
+    );
+
+    const done = new Map<number, number>();
+    const todo = rows.filter((r) => !failedKeys.has(metricsKey(r.keyword, r.location_code, r.language_code)));
+    for (let i = 0; i < todo.length; i += 20) {
+      await Promise.all(todo.slice(i, i + 20).map(async (r) => {
+        const m = byKey.get(metricsKey(r.keyword, r.location_code, r.language_code));
+        // COALESCE: a lookup that failed (null) never wipes a number we already have.
+        await sql`
+          UPDATE keywords SET
+            search_volume = COALESCE(${m?.searchVolume ?? null}, search_volume),
+            cpc = COALESCE(${m?.cpc ?? null}, cpc),
+            competition = COALESCE(${m?.competition ?? null}, competition),
+            difficulty = COALESCE(${m?.difficulty ?? null}, difficulty),
+            metrics_at = now()
+          WHERE id = ${r.id}`;
+        done.set(r.site_id, (done.get(r.site_id) ?? 0) + 1);
+      }));
+    }
+    for (const siteId of new Set(rows.map((r) => r.site_id))) {
+      const mine = rows.filter((r) => r.site_id === siteId).length;
+      const saved = done.get(siteId) ?? 0;
+      await log(siteId, "metrics", errors.length === 0 && saved === mine,
+        errors.length ? `${saved} of ${mine} looked up. First error: ${errors[0]}` : `${saved} keywords looked up`);
+    }
+  } catch (e) {
+    console.error("keyword metrics failed:", (e as Error).message);
+  }
+}
+
 /** Picks up finished Standard Queue checks and saves them. */
 export async function collectDailyRanks() {
   if (!dataForSeoConnected()) return;
@@ -161,6 +213,7 @@ export async function syncGa4(site: Site) {
 export async function syncAll() {
   await collectDailyRanks();
   await queueDailyRanks();
+  await syncKeywordMetrics();
   const sites = await sql<Site[]>`SELECT * FROM sites ORDER BY id`;
   for (const site of sites) await Promise.all([syncGsc(site), syncGa4(site)]);
   return sites.length;

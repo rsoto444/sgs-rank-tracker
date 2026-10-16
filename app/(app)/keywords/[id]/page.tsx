@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { getContext } from "@/lib/sites";
-import { daysAgo, fmtDate, isoDay } from "@/lib/format";
+import { daysAgo, difficultyLabel, fmtDate, isoDay, nf } from "@/lib/format";
 import LineChart from "@/components/LineChart";
 import PageTitle from "@/components/PageTitle";
 import ActionButton from "@/components/ActionButton";
@@ -13,8 +13,8 @@ export default async function KeywordPage({ params }: { params: Promise<{ id: st
   const { user, site } = await getContext();
   const id = Number((await params).id);
   if (!site || !id) notFound();
-  const [keyword] = await sql<{ id: number; keyword: string }[]>`
-    SELECT id, keyword FROM keywords WHERE id = ${id} AND site_id = ${site.id}`;
+  const [keyword] = await sql<{ id: number; keyword: string; search_volume: number | null; cpc: number | null; difficulty: number | null }[]>`
+    SELECT id, keyword, search_volume, cpc::float8 AS cpc, difficulty FROM keywords WHERE id = ${id} AND site_id = ${site.id}`;
   if (!keyword) notFound();
 
   const range = 90;
@@ -50,6 +50,13 @@ export default async function KeywordPage({ params }: { params: Promise<{ id: st
       </PageTitle>
 
       <div className="card mb-5 p-4 text-sm">
+        {(keyword.search_volume !== null || keyword.difficulty !== null) && (
+          <p className="mb-2 text-ink-2">
+            {keyword.search_volume !== null && <>About {nf.format(keyword.search_volume)} searches a month</>}
+            {keyword.difficulty !== null && <>{keyword.search_volume !== null ? " · " : ""}Difficulty {keyword.difficulty} ({difficultyLabel(keyword.difficulty)})</>}
+            {keyword.cpc !== null && keyword.cpc > 0 && <> · about ${keyword.cpc.toFixed(2)} per click in ads</>}
+          </p>
+        )}
         {latest ? (
           <p>
             <PositionBadge position={latest.position} /> on {fmtDate(latest.day)}

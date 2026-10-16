@@ -89,3 +89,85 @@ export async function getRankTask(taskId: string, domain: string) {
   if (task?.status_code !== 20000) throw new Error(`DataForSEO: ${task?.status_message ?? "task not found"}`);
   return findRank(task, domain);
 }
+
+// ---------- keyword research: monthly searches and difficulty ----------
+// Volume: POST keywords_data/google_ads/search_volume/live. Difficulty: POST
+// dataforseo_labs/google/bulk_keyword_difficulty/live. Both take up to 1000 keywords per request and are
+// charged per request, so a whole site costs a few cents. Keywords are lowercased by DataForSEO; ones over
+// 80 characters or 10 words are not accepted and are skipped (they simply get no numbers).
+// Docs: https://docs.dataforseo.com/v3/keywords_data/google_ads/search_volume/live/
+//       https://docs.dataforseo.com/v3/dataforseo_labs/google/bulk_keyword_difficulty/live/
+
+const VOLUME_PATH = "/v3/keywords_data/google_ads/search_volume/live";
+const DIFFICULTY_PATH = "/v3/dataforseo_labs/google/bulk_keyword_difficulty/live";
+const METRICS_BATCH = 1000;
+
+export type KeywordMetricsInput = { keyword: string; locationCode: number; languageCode: string };
+export type KeywordMetrics = { searchVolume: number | null; cpc: number | null; competition: string | null; difficulty: number | null };
+
+export const metricsKey = (keyword: string, locationCode: number, languageCode: string) =>
+  `${locationCode}|${languageCode}|${keyword.trim().toLowerCase()}`;
+
+async function callTask(path: string, body: unknown) {
+  const [task] = await call(path, body);
+  if (task?.status_code !== 20000) throw new Error(`DataForSEO: ${task?.status_message ?? "no task returned"}`);
+  return task;
+}
+
+/**
+ * Looks up monthly searches, cost per click and difficulty for keywords, grouped by market (location and
+ * language). Returns the numbers by metricsKey(). `failedKeys` are keywords whose lookups BOTH failed, so
+ * the caller can retry them later instead of recording an empty result.
+ */
+export async function fetchKeywordMetrics(items: KeywordMetricsInput[]) {
+  const byKey = new Map<string, KeywordMetrics>();
+  const failedKeys = new Set<string>();
+  const errors: string[] = [];
+
+  const markets = new Map<string, KeywordMetricsInput[]>();
+  for (const it of items) {
+    const m = `${it.locationCode}|${it.languageCode}`;
+    markets.set(m, [...(markets.get(m) ?? []), it]);
+  }
+
+  for (const group of markets.values()) {
+    const { locationCode, languageCode } = group[0];
+    const words = [...new Set(group.map((g) => g.keyword.trim().toLowerCase()))].filter((w) => w && w.length <= 80 && w.split(" ").length <= 10);
+    for (let i = 0; i < words.length; i += METRICS_BATCH) {
+      const chunk = words.slice(i, i + METRICS_BATCH);
+      const body = [{ keywords: chunk, location_code: locationCode, language_code: languageCode }];
+      const [vol, diff] = await Promise.allSettled([callTask(VOLUME_PATH, body), callTask(DIFFICULTY_PATH, body)]);
+
+      const entry = (w: string) => {
+        const k = metricsKey(w, locationCode, languageCode);
+        let e = byKey.get(k);
+        if (!e) byKey.set(k, (e = { searchVolume: null, cpc: null, competition: null, difficulty: null }));
+        return e;
+      };
+      if (vol.status === "fulfilled") {
+        for (const r of (vol.value.result ?? []) as { keyword?: string; search_volume?: number | null; cpc?: number | null; competition?: string | null }[]) {
+          if (!r.keyword) continue;
+          const e = entry(r.keyword);
+          e.searchVolume = typeof r.search_volume === "number" ? r.search_volume : null;
+          e.cpc = typeof r.cpc === "number" ? r.cpc : null;
+          e.competition = r.competition ? String(r.competition) : null;
+        }
+      } else errors.push(`volume: ${(vol.reason as Error).message}`);
+      if (diff.status === "fulfilled") {
+        const block = (diff.value.result?.[0] ?? {}) as { items?: { keyword?: string; keyword_difficulty?: number | null }[] };
+        for (const r of block.items ?? []) {
+          if (!r.keyword) continue;
+          entry(r.keyword).difficulty = typeof r.keyword_difficulty === "number" ? r.keyword_difficulty : null;
+        }
+      } else errors.push(`difficulty: ${(diff.reason as Error).message}`);
+
+      // A keyword Google has no data for still counts as looked up (so it is not asked for every day);
+      // only a chunk where both requests failed is retried.
+      for (const w of chunk) {
+        if (vol.status === "fulfilled" || diff.status === "fulfilled") entry(w);
+        else failedKeys.add(metricsKey(w, locationCode, languageCode));
+      }
+    }
+  }
+  return { byKey, failedKeys, errors };
+}

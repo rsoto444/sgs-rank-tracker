@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { sql } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/lib/auth";
 import { ACTIVE_SITE_COOKIE, canAccess, getContext, type Site } from "@/lib/sites";
-import { syncAll, syncGa4, syncGsc, syncRanks } from "@/lib/sync";
+import { syncAll, syncGa4, syncGsc, syncKeywordMetrics, syncRanks } from "@/lib/sync";
 import { cleanDomain } from "@/lib/format";
 
 export async function setActiveSite(siteId: number) {
@@ -40,6 +40,8 @@ export async function addKeywords(_: string | null, form: FormData) {
   if (form.get("check") === "on" && added.length) {
     await syncRanks(site, { onlyKeywordIds: added.map((a) => a.id) });
   }
+  // Volume and difficulty are two cheap batch requests, so new keywords get them straight away.
+  if (added.length) await syncKeywordMetrics({ onlyKeywordIds: added.map((a) => a.id) });
   revalidatePath("/keywords");
   const skipped = unique.length - added.length;
   return `Added ${added.length} keyword${added.length === 1 ? "" : "s"}${skipped ? ` (${skipped} already tracked)` : ""}.`;
@@ -47,7 +49,8 @@ export async function addKeywords(_: string | null, form: FormData) {
 
 export async function trackQuery(query: string) {
   const site = await activeSiteForAdmin();
-  await sql`INSERT INTO keywords (site_id, keyword) VALUES (${site.id}, ${query.trim().toLowerCase()}) ON CONFLICT DO NOTHING`;
+  const added = await sql<{ id: number }[]>`INSERT INTO keywords (site_id, keyword) VALUES (${site.id}, ${query.trim().toLowerCase()}) ON CONFLICT DO NOTHING RETURNING id`;
+  if (added.length) await syncKeywordMetrics({ onlyKeywordIds: added.map((a) => a.id) });
   revalidatePath("/keywords");
 }
 
@@ -61,6 +64,12 @@ export async function removeKeyword(keywordId: number) {
 export async function checkRanksNow() {
   const site = await activeSiteForAdmin();
   await syncRanks(site);
+  revalidatePath("/", "layout");
+}
+
+export async function refreshMetricsNow() {
+  const site = await activeSiteForAdmin();
+  await syncKeywordMetrics({ siteId: site.id, force: true });
   revalidatePath("/", "layout");
 }
 

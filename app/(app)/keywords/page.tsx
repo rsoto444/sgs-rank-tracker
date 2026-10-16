@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { getContext } from "@/lib/sites";
 import { change, keywordRows, untrackedQueries } from "@/lib/queries";
-import { fmtDate, nf } from "@/lib/format";
+import { difficultyLabel, fmtDate, nf } from "@/lib/format";
 import { dataForSeoConnected } from "@/lib/dataforseo";
 import NoSite from "@/components/NoSite";
 import PageTitle from "@/components/PageTitle";
 import AddKeywordsForm from "@/components/AddKeywordsForm";
 import ActionButton from "@/components/ActionButton";
 import { Change, PositionBadge } from "@/components/Position";
-import { checkRanksNow, refreshGoogleNow, trackQuery } from "../actions";
+import { checkRanksNow, refreshGoogleNow, refreshMetricsNow, trackQuery } from "../actions";
 
 export default async function KeywordsPage() {
   const { user, site } = await getContext();
@@ -27,6 +27,9 @@ export default async function KeywordsPage() {
         {isAdmin && connected && (
           <ActionButton action={checkRanksNow} pendingText="Checking Google...">Check positions now</ActionButton>
         )}
+        {isAdmin && connected && (
+          <ActionButton action={refreshMetricsNow} pendingText="Looking up...">Refresh volume and difficulty</ActionButton>
+        )}
         {isAdmin && (site.gsc_property || site.ga4_property_id) && (
           <ActionButton action={refreshGoogleNow} pendingText="Refreshing...">Refresh Google data</ActionButton>
         )}
@@ -40,13 +43,15 @@ export default async function KeywordsPage() {
       )}
 
       <div className="card overflow-x-auto">
-        <table className="tabular w-full min-w-[720px] text-sm">
+        <table className="tabular w-full min-w-[860px] text-sm">
           <thead className="border-b border-line text-left text-xs text-ink-2">
             <tr>
               <th className="px-4 py-2.5 font-medium">Keyword</th>
               <th className="px-3 py-2.5 font-medium">Position</th>
               <th className="px-3 py-2.5 font-medium" title="Change over the last 7 days">7-day change</th>
               <th className="px-3 py-2.5 font-medium">Best</th>
+              <th className="px-3 py-2.5 text-right font-medium" title="Average Google searches per month (DataForSEO, US)">Searches / mo</th>
+              <th className="px-3 py-2.5 font-medium" title="How hard it is to rank for, 0 (easy) to 100 (hard)">Difficulty</th>
               <th className="px-3 py-2.5 text-right font-medium" title="Search Console, last 28 days">Clicks</th>
               <th className="px-3 py-2.5 text-right font-medium" title="Search Console, last 28 days">Impressions</th>
               <th className="px-3 py-2.5 text-right font-medium" title="Search Console average position, last 28 days">Search Console avg</th>
@@ -54,7 +59,7 @@ export default async function KeywordsPage() {
           </thead>
           <tbody className="divide-y divide-line">
             {rows.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-ink-3">No keywords tracked yet.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-ink-3">No keywords tracked yet.</td></tr>
             )}
             {rows.map((k) => (
               <tr key={k.id} className="hover:bg-bg">
@@ -67,6 +72,8 @@ export default async function KeywordsPage() {
                 </td>
                 <td className="px-3 py-2.5"><Change value={change(k)} /></td>
                 <td className="px-3 py-2.5 text-ink-2">{k.best ? `#${k.best}` : "-"}</td>
+                <td className="px-3 py-2.5 text-right">{k.search_volume === null ? "-" : nf.format(k.search_volume)}</td>
+                <td className="px-3 py-2.5 text-ink-2">{k.difficulty === null ? "-" : `${k.difficulty} · ${difficultyLabel(k.difficulty)}`}</td>
                 <td className="px-3 py-2.5 text-right">{k.clicks === null ? "-" : nf.format(k.clicks)}</td>
                 <td className="px-3 py-2.5 text-right">{k.impressions === null ? "-" : nf.format(k.impressions)}</td>
                 <td className="px-3 py-2.5 text-right">{k.gsc_position === null ? "-" : k.gsc_position.toFixed(1)}</td>

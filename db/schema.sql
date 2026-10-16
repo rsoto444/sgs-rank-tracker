@@ -105,3 +105,12 @@ CREATE TABLE IF NOT EXISTS rank_tasks (
   posted_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS rank_tasks_keyword ON rank_tasks (keyword_id, checked_on);
+
+-- Keyword research numbers from DataForSEO (monthly searches, cost per click, how hard to rank).
+-- Refreshed in the daily job for new keywords and ones older than 30 days. metrics_at is set whenever
+-- a lookup succeeded, even when Google has no data for the keyword, so those are not asked for every day.
+ALTER TABLE keywords ADD COLUMN IF NOT EXISTS search_volume integer;
+ALTER TABLE keywords ADD COLUMN IF NOT EXISTS cpc real;
+ALTER TABLE keywords ADD COLUMN IF NOT EXISTS competition text;
+ALTER TABLE keywords ADD COLUMN IF NOT EXISTS difficulty integer;
+ALTER TABLE keywords ADD COLUMN IF NOT EXISTS metrics_at timestamptz;

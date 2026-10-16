@@ -15,7 +15,7 @@ function Status({ ok }: { ok: boolean }) {
   );
 }
 
-const SOURCE_NAMES: Record<string, string> = { dataforseo: "Rank checks", gsc: "Search Console", ga4: "Google Analytics" };
+const SOURCE_NAMES: Record<string, string> = { dataforseo: "Rank checks", metrics: "Volume and difficulty", gsc: "Search Console", ga4: "Google Analytics" };
 
 export default async function ConnectionsPage() {
   await requireAdmin();
